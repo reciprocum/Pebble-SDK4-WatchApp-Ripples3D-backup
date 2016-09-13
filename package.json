@@ -1,0 +1,29 @@
+{
+    "author": "Karambola",
+    "dependencies": {
+        "karambola": "https://builds.cloudpebble.net/851acc87-33dc-49d4-9c71-4d2b117b31d1/package.tar.gz"
+    },
+    "keywords": [],
+    "name": "ripples-3d",
+    "pebble": {
+        "displayName": "Ripples 3D",
+        "enableMultiJS": true,
+        "messageKeys": [],
+        "projectType": "native",
+        "resources": {
+            "media": []
+        },
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "aplite",
+            "basalt",
+            "chalk",
+            "diorite"
+        ],
+        "uuid": "65f35499-5e46-43e9-81df-49dd138b9dad",
+        "watchapp": {
+            "watchface": false
+        }
+    },
+    "version": "1.11.0"
+}
