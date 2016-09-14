@@ -5,7 +5,7 @@
    Notes   : Dedicated to all the @PebbleDev team and to @KatharineBerry in particular
            : ... for her CloudPebble online dev environment that made this possible.
 
-   Last revision: 13h45 September 11 2016  GMT
+   Last revision: 13h15 September 14 2016  GMT
 */
 
 #include "Config.h"
@@ -13,12 +13,7 @@
 
 // World related
 
-#ifdef PBL_PLATFORM_APLITE
-  #define GRID_LINES        25
-#else
-  #define GRID_LINES        29
-#endif
-
+#define  GRID_LINES                 29
 #define  GRID_SCALE                 6.283185f
 #define  CAM3D_DISTANCEFROMORIGIN   8.75f
 

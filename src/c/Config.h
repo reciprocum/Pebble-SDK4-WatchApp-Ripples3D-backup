@@ -11,7 +11,7 @@
 #pragma once
 
 // Uncommenting the next line will enable all LOG* calls.
-#define LOG
+//#define LOG
 
 // Uncommenting the next line will enable GIF mode.
 #define  GIF

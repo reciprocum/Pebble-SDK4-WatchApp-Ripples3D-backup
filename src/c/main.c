@@ -5,7 +5,7 @@
    Notes   : Dedicated to all the @PebbleDev team and to @KatharineBerry in particular
            : ... for her CloudPebble online dev environment that made this possible.
 
-   Last revision: 18h25 September 13 2016  GMT
+   Last revision: 14h35 September 14 2016
 */
 
 #include <pebble.h>
@@ -343,7 +343,6 @@ world_pointIsVisible
 )
 {
   Q  k ;
-  Q  kMin = Q_1 ;
   Q3 point2viewer ;
 
   Q3_sub( &point2viewer, viewer, point ) ;
@@ -356,8 +355,7 @@ world_pointIsVisible
   else
     k = Q_1 ;
 
-  if (k < kMin)
-    kMin = k ;
+  Q kMin = k ;
 
   if (viewer->y > world_yMax)
     k = Q_div( world_yMax - point->y, point2viewer.y ) ;
@@ -379,8 +377,12 @@ world_pointIsVisible
   if (k < kMin)
     kMin = k ;
 
+  // test for the point being epsilon close to the world box surface.
+  if (kMin < (Q_1>>(VISIBILITY_MAX_ITERATIONS+1)))
+    return true ;
+
   if (kMin < Q_1)
-    Q3_sca( &point2viewer, k, &point2viewer ) ;    //  Do the clipping to the nearest min/max box wall.
+    Q3_sca( &point2viewer, kMin, &point2viewer ) ;    //  Do the clipping to the nearest min/max box wall.
 
 
   bool hasPositives = false ;
@@ -388,7 +390,7 @@ world_pointIsVisible
 
   //  2) Test the clipped line segment with increasingly smaller steps.
 
-  Q3 smallStep ;
+  Q3 smallStep, probe ;
   Q  smallStepK ;
 
   for ( smallStepK = Q_1     , smallStep = point2viewer                                  //  Start with the biggest possible small step, all the way to the nearest point in the min/max box (k=1).
@@ -396,7 +398,6 @@ world_pointIsVisible
       ; smallStepK >>= 1     , smallStep.x >>= 1, smallStep.y >>= 1, smallStep.z >>= 1   //  Divide the step length in half.
       )
   {
-    Q3 probe ;
     Q3_add( &probe, point, &smallStep ) ;
 
     Q3 bigStep ;
@@ -1235,37 +1236,83 @@ function_draw_lineSegment
 
 
 void
+grid_xBiSegment_drawLine
+( GContext *gCtx
+, int       j
+)
+{
+  // x parallel line.
+  for (int i = 0  ;  i < GRID_LINES-1 ;  ++i)
+  {
+    function_draw_lineSegment( gCtx
+                             , grid_xBiSegment_center_worldCoord[i][j]
+                             , grid_xBiSegment_center_isVisible[i][j]
+                             , grid_xBiSegment_center_distance2oscillator[i][j]
+                             , grid_xBiSegment_center_screenCoord[i][j]
+                             , grid_mark_worldCoord[i][j]
+                             , grid_mark_isVisible[i][j]
+                             , grid_mark_distance2oscillator[i][j]
+                             , grid_mark_screenCoord[i][j]
+                             ) ;
+
+    int i1 = i + 1 ;
+
+    function_draw_lineSegment( gCtx
+                             , grid_xBiSegment_center_worldCoord[i][j]
+                             , grid_xBiSegment_center_isVisible[i][j]
+                             , grid_xBiSegment_center_distance2oscillator[i][j]
+                             , grid_xBiSegment_center_screenCoord[i][j]
+                             , grid_mark_worldCoord[i1][j]
+                             , grid_mark_isVisible[i1][j]
+                             , grid_mark_distance2oscillator[i1][j]
+                             , grid_mark_screenCoord[i1][j]
+                             ) ;
+  }
+}
+
+
+void
 grid_xBiSegment_drawLines
 ( GContext *gCtx )
 {
   // x parallel lines.
   for (int j = 0  ;  j < GRID_LINES  ;  ++j)
-    for (int i = 0  ;  i < GRID_LINES-1 ;  ++i)
-    {
-      function_draw_lineSegment( gCtx
-                               , grid_xBiSegment_center_worldCoord[i][j]
-                               , grid_xBiSegment_center_isVisible[i][j]
-                               , grid_xBiSegment_center_distance2oscillator[i][j]
-                               , grid_xBiSegment_center_screenCoord[i][j]
-                               , grid_mark_worldCoord[i][j]
-                               , grid_mark_isVisible[i][j]
-                               , grid_mark_distance2oscillator[i][j]
-                               , grid_mark_screenCoord[i][j]
-                               ) ;
+    grid_xBiSegment_drawLine( gCtx, j ) ;
+}
 
-      int i1 = i + 1 ;
 
-      function_draw_lineSegment( gCtx
-                               , grid_xBiSegment_center_worldCoord[i][j]
-                               , grid_xBiSegment_center_isVisible[i][j]
-                               , grid_xBiSegment_center_distance2oscillator[i][j]
-                               , grid_xBiSegment_center_screenCoord[i][j]
-                               , grid_mark_worldCoord[i1][j]
-                               , grid_mark_isVisible[i1][j]
-                               , grid_mark_distance2oscillator[i1][j]
-                               , grid_mark_screenCoord[i1][j]
-                               ) ;
-    }
+void
+grid_yBiSegment_drawLine
+( GContext *gCtx
+, int       i
+)
+{
+  for (int j = 0  ;  j < GRID_LINES-1  ;  ++j)
+  {
+    function_draw_lineSegment( gCtx
+                             , grid_yBiSegment_center_worldCoord[i][j]
+                             , grid_yBiSegment_center_isVisible[i][j]
+                             , grid_yBiSegment_center_distance2oscillator[i][j]
+                             , grid_yBiSegment_center_screenCoord[i][j]
+                             , grid_mark_worldCoord[i][j]
+                             , grid_mark_isVisible[i][j]
+                             , grid_mark_distance2oscillator[i][j]
+                             , grid_mark_screenCoord[i][j]
+                             ) ;
+
+    int j1 = j + 1 ;
+
+    function_draw_lineSegment( gCtx
+                             , grid_yBiSegment_center_worldCoord[i][j]
+                             , grid_yBiSegment_center_isVisible[i][j]
+                             , grid_yBiSegment_center_distance2oscillator[i][j]
+                             , grid_yBiSegment_center_screenCoord[i][j]
+                             , grid_mark_worldCoord[i][j1]
+                             , grid_mark_isVisible[i][j1]
+                             , grid_mark_distance2oscillator[i][j1]
+                             , grid_mark_screenCoord[i][j1]
+                             ) ;
+  }
 }
 
 
@@ -1275,32 +1322,7 @@ grid_yBiSegment_drawLines
 {
   // y parallel lines.
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
-    for (int j = 0  ;  j < GRID_LINES-1  ;  ++j)
-    {
-      function_draw_lineSegment( gCtx
-                               , grid_yBiSegment_center_worldCoord[i][j]
-                               , grid_yBiSegment_center_isVisible[i][j]
-                               , grid_yBiSegment_center_distance2oscillator[i][j]
-                               , grid_yBiSegment_center_screenCoord[i][j]
-                               , grid_mark_worldCoord[i][j]
-                               , grid_mark_isVisible[i][j]
-                               , grid_mark_distance2oscillator[i][j]
-                               , grid_mark_screenCoord[i][j]
-                               ) ;
-
-      int j1 = j + 1 ;
-
-      function_draw_lineSegment( gCtx
-                               , grid_yBiSegment_center_worldCoord[i][j]
-                               , grid_yBiSegment_center_isVisible[i][j]
-                               , grid_yBiSegment_center_distance2oscillator[i][j]
-                               , grid_yBiSegment_center_screenCoord[i][j]
-                               , grid_mark_worldCoord[i][j1]
-                               , grid_mark_isVisible[i][j1]
-                               , grid_mark_distance2oscillator[i][j1]
-                               , grid_mark_screenCoord[i][j1]
-                               ) ;
-    }
+    grid_yBiSegment_drawLine( gCtx, i ) ;
 }
 
 
@@ -1365,10 +1387,16 @@ world_draw
   {
     case PLOTTER_MODE_DOTS:
       grid_screenCoord_drawPixel( gCtx ) ;
+      grid_xBiSegment_drawLine( gCtx, 0 ) ;
+      grid_xBiSegment_drawLine( gCtx, GRID_LINES-1 ) ;
+      grid_yBiSegment_drawLine( gCtx, 0 ) ;
+      grid_yBiSegment_drawLine( gCtx, GRID_LINES-1 ) ;
     break ;
 
     case PLOTTER_MODE_LINES:
       grid_xBiSegment_drawLines( gCtx ) ;
+      grid_yBiSegment_drawLine( gCtx, 0 ) ;
+      grid_yBiSegment_drawLine( gCtx, GRID_LINES-1 ) ;
     break ;
 
     case PLOTTER_MODE_GRID:
