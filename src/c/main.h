@@ -16,7 +16,7 @@
 #ifdef PBL_PLATFORM_APLITE
   #define GRID_LINES        25
 #else
-  #define GRID_LINES        31
+  #define GRID_LINES        29
 #endif
 
 #define  GRID_SCALE                 6.283185f
@@ -69,4 +69,4 @@
 #endif
 
 #define VISIBILITY_MAX_ITERATIONS   4
-#define TERMINATOR_MAX_ITERATIONS   4
+#define TERMINATOR_MAX_ITERATIONS   2

@@ -5,7 +5,7 @@
    Notes   : Dedicated to all the @PebbleDev team and to @KatharineBerry in particular
            : ... for her CloudPebble online dev environment that made this possible.
 
-   Last revision: 13h25 September 13 2016  GMT
+   Last revision: 18h25 September 13 2016  GMT
 */
 
 #include <pebble.h>
@@ -44,10 +44,10 @@ static Q       grid_mark_distance2oscillator             [GRID_LINES][GRID_LINES
 static bool    grid_mark_isVisible                       [GRID_LINES][GRID_LINES] ;
 static GPoint  grid_mark_screenCoord                     [GRID_LINES][GRID_LINES] ;
 
-static Q3      grid_xBiSegment_center_worldCoord         [GRID_LINES][GRID_LINES-1] ;
-static Q       grid_xBiSegment_center_distance2oscillator[GRID_LINES][GRID_LINES-1] ;
-static bool    grid_xBiSegment_center_isVisible          [GRID_LINES][GRID_LINES-1] ;
-static GPoint  grid_xBiSegment_center_screenCoord        [GRID_LINES][GRID_LINES-1] ;
+static Q3      grid_xBiSegment_center_worldCoord         [GRID_LINES-1][GRID_LINES] ;
+static Q       grid_xBiSegment_center_distance2oscillator[GRID_LINES-1][GRID_LINES] ;
+static bool    grid_xBiSegment_center_isVisible          [GRID_LINES-1][GRID_LINES] ;
+static GPoint  grid_xBiSegment_center_screenCoord        [GRID_LINES-1][GRID_LINES] ;
 
 static Q3      grid_yBiSegment_center_worldCoord         [GRID_LINES][GRID_LINES-1] ;
 static Q       grid_yBiSegment_center_distance2oscillator[GRID_LINES][GRID_LINES-1] ;
@@ -210,6 +210,19 @@ cam_config
 }
 
 
+void
+worldCoord2ScreenCoord
+( GPoint *s, const Q3 *w )
+{
+  // Calculate (c)amera film plane 2D coordinates of 3D (w)orld points.
+  Q2 c ;  CamQ3_view( &c, &s_cam, w ) ;
+
+  // Convert camera coordinates to screen/device coordinates.
+  Q sX = Q_mul( cameraCoord2screenCoord_k, c.x ) + cameraCoord2screenCoord_bX ;  s->x = Q_to_int(sX) ;
+  Q sY = Q_mul( cameraCoord2screenCoord_k, c.y ) + cameraCoord2screenCoord_bY ;  s->y = Q_to_int(sY) ;
+}
+
+
 /***  ---------------  OSCILLATOR MODE  ---------------  ***/
 
 typedef enum { OSCILLATOR_MODE_UNDEFINED
@@ -221,7 +234,7 @@ OscilatorMode ;
 
 static OscilatorMode    s_oscillatorMode = OSCILLATOR_MODE_UNDEFINED ;
 
-void oscillator_distance_update( const Q2 *pRefPtr ) ;
+void grid_distance2oscillator_update( const Q2 *pRefPtr ) ;
 Q2*  position_setFromSensors( Q2 *positionPtr ) ;
 Q2*  acceleration_setFromSensors( Q2 *accelerationPtr ) ;
 
@@ -242,23 +255,23 @@ oscillatorMode_set
 
     case OSCILLATOR_MODE_BOUNCING:
       cam_config( Q3_set( &s_cam_viewPoint, Q_from_float( +0.1f ), Q_from_float( -1.0f ), Q_from_float( +0.7f ) ), s_cam_rotZangle = 0 ) ;
-      Q2_assign( &oscillator_position, &Q2_origin ) ;   //  Initial position is center of grid.
+      oscillator_position = Q2_origin ;   //  Initial position is center of grid.
 
       #ifdef GIF
         Q2_set( &oscillator_speed, 3072, -1536 ) ;
       #else
-        Q2_assign( &oscillator_speed, &Q2_origin ) ;   //  No initial speed.
+        oscillator_speed = Q2_origin ;   //  No initial speed.
       #endif
     break ;
 
     case OSCILLATOR_MODE_ANCHORED:
     default:
       s_cam_rotZangle = 0 ;
-      Q2_assign( &oscillator_position, &Q2_origin ) ;   //  oscillator_position := Q2_origin
+      oscillator_position = Q2_origin ;   //  oscillator_position := Q2_origin
     break ;
   } ;
 
-  oscillator_distance_update( &oscillator_position ) ;
+  grid_distance2oscillator_update( &oscillator_position ) ;
 }
 
 
@@ -296,17 +309,31 @@ oscillatorMode_change_click_handler
 { oscillatorMode_change( ) ; }
 
 
+//inline
 Q
-world_function
-( const Q pX, const Q pY )
+f_distance
+( const Q dist )
 {
-  const Q       x     = oscillator_position.x - pX ;
-  const Q       y     = oscillator_position.y - pY ;
-  const Q       dist  = Q_sqrt( Q_mul( x, x ) + Q_mul( y, y ) ) ;
-  const int32_t angle = ((dist >> 1) + oscillator_anglePhase) & 0xFFFF ;   //  (dist / 2 + anglePhase) % TRIG_MAX_RATIO
-
+  const int32_t angle = ((dist >> 1) + oscillator_anglePhase) & 0xFFFF ;   //  (distance2oscillator / 2 + anglePhase) % TRIG_MAX_RATIO
   return cos_lookup( angle ) ;                                             //  z = f( x, y )
 }
+
+
+Q
+distance2oscillator
+( const Q x, const Q y )
+{
+  const Q  dx = oscillator_position.x - x ;
+  const Q  dy = oscillator_position.y - y ;
+
+  return Q_sqrt( Q_mul( dx, dx ) + Q_mul( dy, dy ) ) ;
+}
+
+
+Q
+f_XY
+( const Q x, const Q y )
+{ return f_distance( distance2oscillator( x, y ) ) ; }
 
 
 bool
@@ -316,6 +343,7 @@ world_pointIsVisible
 )
 {
   Q  k ;
+  Q  kMin = Q_1 ;
   Q3 point2viewer ;
 
   Q3_sub( &point2viewer, viewer, point ) ;
@@ -328,8 +356,9 @@ world_pointIsVisible
   else
     k = Q_1 ;
 
-  Q kMin = k ;
-    
+  if (k < kMin)
+    kMin = k ;
+
   if (viewer->y > world_yMax)
     k = Q_div( world_yMax - point->y, point2viewer.y ) ;
   else if (viewer->y < world_yMin)
@@ -362,7 +391,7 @@ world_pointIsVisible
   Q3 smallStep ;
   Q  smallStepK ;
 
-  for ( smallStepK = Q_1     , Q3_assign( &smallStep, &point2viewer )                    //  Start with the biggest possible small step, all the way to the nearest point in the min/max box (k=1).
+  for ( smallStepK = Q_1     , smallStep = point2viewer                                  //  Start with the biggest possible small step, all the way to the nearest point in the min/max box (k=1).
       ; smallStepK >= Q_1>>VISIBILITY_MAX_ITERATIONS                                     //  Newton (split in half) steps. TODO: refine exit criteria.
       ; smallStepK >>= 1     , smallStep.x >>= 1, smallStep.y >>= 1, smallStep.z >>= 1   //  Divide the step length in half.
       )
@@ -378,7 +407,7 @@ world_pointIsVisible
         ; k += bigStepK ,  Q3_add( &probe, &probe, &bigStep )
         )
     {
-      Q probeAltitude = probe.z - world_function( probe.x, probe.y ) ;
+      Q probeAltitude = probe.z - f_XY( probe.x, probe.y ) ;
     
       if (probeAltitude > Q_0)
       {
@@ -459,21 +488,22 @@ world_pointIsVisible
 /***  ---------------  oscillator---------  ***/
 
 void
-oscillator_distance_update
+grid_mark_distance2oscillator_update
 ( const Q2 *pRefPtr )
 {
-  Q y2[GRID_LINES] ;
+  Q x, y,  x2i, y2[GRID_LINES] ;
 
+  /*  Marks  */
   for (int j = 0  ;  j < GRID_LINES  ;  j++)
   {
-    const Q y = pRefPtr->y - grid_mark_worldCoord[0][j].y ;
+    y     = pRefPtr->y - grid_mark_worldCoord[0][j].y ;
     y2[j] = Q_mul(y, y) ;
   }
 
   for (int i = 0  ;  i < GRID_LINES  ;  i++)
   {
-    const Q x   = pRefPtr->x - grid_mark_worldCoord[i][0].x ;
-    const Q x2i = Q_mul(x, x) ;
+    x   = pRefPtr->x - grid_mark_worldCoord[i][0].x ;
+    x2i = Q_mul(x, x) ;
 
     for (int j = 0  ;  j < GRID_LINES  ;  j++)
       grid_mark_distance2oscillator[i][j] = Q_sqrt( x2i + y2[j] ) ;
@@ -482,36 +512,135 @@ oscillator_distance_update
 
 
 void
-function_grid_initialize
+grid_xBiSegment_center_distance2oscillator_update
+( const Q2 *pRefPtr )
+{
+  Q x, y,  y2j,  x2[GRID_LINES] ;
+ 
+  /* X BiSegments */
+  for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+  {
+    x     = pRefPtr->x - grid_xBiSegment_center_worldCoord[i][0].x ;
+    x2[i] = Q_mul(x, x) ;
+  }
+
+  for (int j = 0  ;  j < GRID_LINES  ;  j++)
+  {
+    y   = pRefPtr->y - grid_xBiSegment_center_worldCoord[0][j].y ;
+    y2j = Q_mul(y, y) ;
+
+    for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+      grid_xBiSegment_center_distance2oscillator[i][j] = Q_sqrt( x2[i] + y2j ) ;
+  }
+}
+
+
+void
+grid_yBiSegment_center_distance2oscillator_update
+( const Q2 *pRefPtr )
+{
+  Q x, y,  x2i, y2[GRID_LINES] ;
+
+  /* Y BiSegments */
+  for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+  {
+    y     = pRefPtr->y - grid_yBiSegment_center_worldCoord[0][j].y ;
+    y2[j] = Q_mul(y, y) ;
+  }
+
+  for (int i = 0  ;  i < GRID_LINES  ;  i++)
+  {
+    x   = pRefPtr->x - grid_yBiSegment_center_worldCoord[i][0].x ;
+    x2i = Q_mul(x, x) ;
+
+    for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+      grid_yBiSegment_center_distance2oscillator[i][j] = Q_sqrt( x2i + y2[j] ) ;
+  }
+}
+
+
+void
+grid_distance2oscillator_update
+( const Q2 *pRefPtr )
+{
+  switch (s_plotterMode)
+  {
+    case PLOTTER_MODE_DOTS:
+    case PLOTTER_MODE_GRID:
+      grid_mark_distance2oscillator_update( pRefPtr ) ;
+      grid_xBiSegment_center_distance2oscillator_update( pRefPtr ) ;
+      grid_yBiSegment_center_distance2oscillator_update( pRefPtr ) ;
+    break ;
+
+    case PLOTTER_MODE_LINES:
+      grid_mark_distance2oscillator_update( pRefPtr ) ;
+      grid_xBiSegment_center_distance2oscillator_update( pRefPtr ) ;
+      grid_yBiSegment_center_distance2oscillator_update( pRefPtr ) ;
+    break ;
+
+    default:
+    break ;
+  } ;
+}
+
+
+void
+grid_initialize
 ( )
 {
-  const Q gridStep = Q_div( grid_scale, Q_from_int(GRID_LINES - 1) ) ;
+  const Q distanceBetweenLines = Q_div( grid_scale, Q_from_int(GRID_LINES - 1) ) ;
 
   world_xMin = world_yMin = -grid_halfScale ;
   world_xMax = world_yMax = +grid_halfScale ;
   world_zMin = -Q_1 ;
   world_zMax = +Q_1 ;
 
-  int i ;
-  Q   x ;
+  int i, j ;
+  Q   x, y ;
 
+  /* Marks */
   for ( i = 0          , x = world_xMin
       ; i < GRID_LINES
-      ; i++            , x += gridStep
+      ; i++            , x += distanceBetweenLines
       )
-  {
-    int j ;
-    Q   y ;
-
     for ( j = 0          , y = world_yMin
         ; j < GRID_LINES
-        ; j++            , y += gridStep
+        ; j++            , y += distanceBetweenLines
         )
     {
       grid_mark_worldCoord[i][j].x = x ;
       grid_mark_worldCoord[i][j].y = y ;
     }
-  }
+
+  const Q halfDistanceBetweenLines = distanceBetweenLines >> 1 ;
+
+  /* X BiSegments */
+  for ( j = 0          , y = world_yMin
+      ; j < GRID_LINES
+      ; j++            , y += distanceBetweenLines
+      )
+    for ( i = 0          , x = world_xMin + halfDistanceBetweenLines
+        ; i < GRID_LINES-1
+        ; i++            , x += distanceBetweenLines
+        )
+    {
+      grid_xBiSegment_center_worldCoord[i][j].x = x ;
+      grid_xBiSegment_center_worldCoord[i][j].y = y ;
+    }
+
+  /* Y BiSegments */
+  for ( i = 0          , x = world_xMin
+      ; i < GRID_LINES
+      ; i++            , x += distanceBetweenLines
+      )
+    for ( j = 0          , y = world_yMin + halfDistanceBetweenLines
+        ; j < GRID_LINES-1
+        ; j++            , y += distanceBetweenLines
+        )
+    {
+      grid_yBiSegment_center_worldCoord[i][j].x = x ;
+      grid_yBiSegment_center_worldCoord[i][j].y = y ;
+    }
 }
 
 
@@ -542,25 +671,25 @@ static bool       s_isInverted ;
     s_colorMap[1] = GColorGreen ;
     s_colorMap[0] = GColorVividCerulean ;
   }
-  
-  
+
+
   void
   set_stroke_color
   ( GContext *gCtx
-  , const int i
-  , const int j
+  , const Q   z
+  , const Q   distance
   )
   {
     switch (s_colorMode)
     {
       case COLOR_MODE_SIGNAL:
-        graphics_context_set_stroke_color( gCtx, grid_mark_worldCoord[i][j].z > Q_0  ?  GColorMelon  :  GColorVividCerulean ) ;
+        graphics_context_set_stroke_color( gCtx, z > Q_0  ?  GColorMelon  :  GColorVividCerulean ) ;
       break ;
-  
+
       case COLOR_MODE_DIST:
-        graphics_context_set_stroke_color( gCtx, s_colorMap[((grid_mark_distance2oscillator[i][j]) >> 15) & 0b111] ) ;             //  (2 * distance) % 8
+        graphics_context_set_stroke_color( gCtx, s_colorMap[(distance >> 15) & 0b111] ) ;      //  (2 * distance) % 8
       break ;
-  
+
       case COLOR_MODE_MONO:
       default:
         graphics_context_set_stroke_color( gCtx, s_stroke_color ) ;
@@ -590,8 +719,8 @@ static bool       s_isInverted ;
   
   ink_t
   get_stroke_ink
-  ( const int i
-  , const int j
+  ( const Q   z
+  , const Q   distance
   )
   {
     switch (s_colorMode)
@@ -601,11 +730,11 @@ static bool       s_isInverted ;
       break ;
       
       case COLOR_MODE_SIGNAL:
-        return grid_mark_worldCoord[i][j].z > Q_0  ?  INK100  :  INK33 ;
+        return z > Q_0  ?  INK100  :  INK33 ;
       break ;
   
       case COLOR_MODE_DIST:
-        switch (((grid_mark_distance2oscillator[i][j]) >> 15) & 0b1 )   //  (2 * distance) % 2
+        switch ((distance >> 15) & 0b1 )   //  (2 * distance) % 2
         {
           case 1:
             return INK33 ;
@@ -659,11 +788,11 @@ void
 world_initialize
 ( )
 {
-  function_grid_initialize( ) ;
+  plotterMode_set( PLOTTER_MODE_DEFAULT ) ;
+  grid_initialize( ) ;
   color_initialize( ) ;
 
   colorMode_set( COLOR_MODE_DEFAULT ) ;
-  plotterMode_set( PLOTTER_MODE_DEFAULT ) ;
   oscillatorMode_set( OSCILLATOR_MODE_DEFAULT ) ;
 
 #ifndef GIF
@@ -678,25 +807,112 @@ world_initialize
 // UPDATE WORLD OBJECTS PROPERTIES
 
 void
-function_update_worldPoints
+grid_mark_worldCoord_update
 ( )
 {
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
     for (int j = 0  ;  j < GRID_LINES  ;  ++j)
-    {
-      const int32_t angle = ((grid_mark_distance2oscillator[i][j] >> 1) + oscillator_anglePhase) & 0xFFFF ;   //  (grid_mark_distance2oscillator[i][j] / 2 + anglePhase) % TRIG_MAX_RATIO
-      grid_mark_worldCoord[i][j].z = cos_lookup( angle ) ;                                           //  z = f( x, y )
-    }
+      grid_mark_worldCoord[i][j].z = f_distance( grid_mark_distance2oscillator[i][j] ) ;
 }
 
 
 void
-function_update_worldPoints_isVisible
+grid_xBiSegment_center_worldCoord_update
+( )
+{
+  for (int j = 0  ;  j < GRID_LINES  ;  j++)
+    for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+      grid_xBiSegment_center_worldCoord[i][j].z = f_distance( grid_xBiSegment_center_distance2oscillator[i][j] ) ;
+}
+
+
+void
+grid_yBiSegment_center_worldCoord_update
+( )
+{
+  for (int i = 0  ;  i < GRID_LINES  ;  i++)
+    for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+      grid_yBiSegment_center_worldCoord[i][j].z = f_distance( grid_yBiSegment_center_distance2oscillator[i][j] ) ;
+}
+
+
+void
+grid_worldCoord_update
+( )
+{
+  switch (s_plotterMode)
+  {
+    case PLOTTER_MODE_DOTS:
+    case PLOTTER_MODE_GRID:
+      grid_mark_worldCoord_update( ) ;
+      grid_xBiSegment_center_worldCoord_update( ) ;
+      grid_yBiSegment_center_worldCoord_update( ) ;
+    break ;
+
+    case PLOTTER_MODE_LINES:
+      grid_mark_worldCoord_update( ) ;
+      grid_xBiSegment_center_worldCoord_update( ) ;
+      grid_yBiSegment_center_worldCoord_update( ) ;
+    break ;
+
+    default:
+    break ;
+  } ;
+}
+
+
+void
+grid_mark_isVisible_update
 ( )
 {
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
     for (int j = 0  ;  j < GRID_LINES  ;  ++j)
       grid_mark_isVisible[i][j] = world_pointIsVisible( &grid_mark_worldCoord[i][j], &s_cam.viewPoint ) ;
+}
+
+
+void
+grid_xBiSegment_center_isVisible_update
+( )
+{
+  for (int j = 0  ;  j < GRID_LINES  ;  j++)
+    for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+      grid_xBiSegment_center_isVisible[i][j] = world_pointIsVisible( &grid_xBiSegment_center_worldCoord[i][j], &s_cam.viewPoint ) ;
+}
+
+
+void
+grid_yBiSegment_center_isVisible_update
+( )
+{
+  for (int i = 0  ;  i < GRID_LINES  ;  i++)
+    for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+      grid_yBiSegment_center_isVisible[i][j] = world_pointIsVisible( &grid_yBiSegment_center_worldCoord[i][j], &s_cam.viewPoint ) ;
+}
+
+
+void
+grid_isVisible_update
+( )
+{
+  switch (s_plotterMode)
+  {
+    case PLOTTER_MODE_DOTS:
+    case PLOTTER_MODE_GRID:
+      grid_mark_isVisible_update( ) ;
+      grid_xBiSegment_center_isVisible_update( ) ;
+      grid_yBiSegment_center_isVisible_update( ) ;
+    break ;
+
+    case PLOTTER_MODE_LINES:
+      grid_mark_isVisible_update( ) ;
+      grid_xBiSegment_center_isVisible_update( ) ;
+      grid_yBiSegment_center_isVisible_update( ) ;
+    break ;
+
+    default:
+    break ;
+  } ;
 }
 
 
@@ -707,7 +923,7 @@ position_setFromSensors
   AccelData ad ;
   
   if (accel_service_peek( &ad ) < 0)         // Accel service not available.
-    Q2_assign( positionPtr, &Q2_origin ) ;
+    *positionPtr = Q2_origin ;
   else
   {
     positionPtr->x = Q_mul( grid_halfScale, ad.x << 6 ) ;
@@ -725,7 +941,7 @@ acceleration_setFromSensors
   AccelData ad ;
 
   if (accel_service_peek( &ad ) < 0)         // Accel service not available.
-    Q2_assign( accelerationPtr, &Q2_origin ) ;
+    *accelerationPtr = Q2_origin ;
   else
   {
     accelerationPtr->x = ad.x >> OSCILLATOR_INERTIA_LEVEL ;
@@ -805,11 +1021,11 @@ oscillator_update
   switch (s_oscillatorMode)
   {
     case OSCILLATOR_MODE_ANCHORED:
-      //  No need to call oscillator_distance_update( ) because oscillator is not moving.
+      //  No need to call grid_distance2oscillator_update( ) because oscillator is not moving.
     break ;
 
     case OSCILLATOR_MODE_FLOATING:
-      oscillator_distance_update( position_setFromSensors( &oscillator_position ) ) ;
+      grid_distance2oscillator_update( position_setFromSensors( &oscillator_position ) ) ;
     break ;
 
     case OSCILLATOR_MODE_BOUNCING:
@@ -849,7 +1065,7 @@ oscillator_update
         oscillator_speed.y    = -oscillator_speed.y ;
       }
 
-      oscillator_distance_update( &oscillator_position ) ;
+      grid_distance2oscillator_update( &oscillator_position ) ;
 
       // 6) introduce some drag to dampen oscillator speed
       #ifndef GIF
@@ -871,9 +1087,9 @@ world_update
   ++s_world_updateCount ;   //   "Master clock" for everything.
 
   oscillator_update( ) ;
-  function_update_worldPoints( ) ;
+  grid_worldCoord_update( ) ;
   camera_update( ) ;
-  function_update_worldPoints_isVisible( ) ;
+  grid_isVisible_update( ) ;
 
   // this will queue a defered call to the world_draw( ) method.
   layer_mark_dirty( s_world_layer ) ;
@@ -881,7 +1097,7 @@ world_update
 
 
 void
-function_draw_DOTS
+grid_mark_screenCoord_drawPixel
 ( GContext *gCtx )
 {
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
@@ -889,7 +1105,7 @@ function_draw_DOTS
       if (grid_mark_isVisible[i][j])
       {
         #ifdef PBL_COLOR
-          set_stroke_color( gCtx, i, j ) ;
+          set_stroke_color( gCtx, grid_mark_worldCoord[i][j].z, grid_mark_distance2oscillator[i][j] ) ;
         #endif
 
         graphics_draw_pixel( gCtx, grid_mark_screenCoord[i][j] ) ;
@@ -898,104 +1114,233 @@ function_draw_DOTS
 
 
 void
+grid_xBiSegment_center_screenCoord_drawPixel
+( GContext *gCtx )
+{
+  for (int j = 0  ;  j < GRID_LINES  ;  j++)
+    for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+      if (grid_xBiSegment_center_isVisible[i][j])
+      {
+        #ifdef PBL_COLOR
+          set_stroke_color( gCtx, grid_xBiSegment_center_worldCoord[i][j].z, grid_xBiSegment_center_distance2oscillator[i][j] ) ;
+        #endif
+
+        graphics_draw_pixel( gCtx, grid_xBiSegment_center_screenCoord[i][j] ) ;
+      }
+}
+
+
+void
+grid_yBiSegment_center_screenCoord_drawPixel
+( GContext *gCtx )
+{
+  for (int i = 0  ;  i < GRID_LINES  ;  i++)
+    for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+      if (grid_yBiSegment_center_isVisible[i][j])
+      {
+        #ifdef PBL_COLOR
+          set_stroke_color( gCtx, grid_yBiSegment_center_worldCoord[i][j].z, grid_yBiSegment_center_distance2oscillator[i][j] ) ;
+        #endif
+
+        graphics_draw_pixel( gCtx, grid_yBiSegment_center_screenCoord[i][j] ) ;
+      }
+}
+
+
+void
+grid_screenCoord_drawPixel
+( GContext *gCtx )
+{
+  grid_mark_screenCoord_drawPixel( gCtx ) ;
+  grid_xBiSegment_center_screenCoord_drawPixel( gCtx ) ;
+  grid_yBiSegment_center_screenCoord_drawPixel( gCtx ) ;
+}
+
+void
 function_draw_lineSegment
 ( GContext *gCtx
-, const int i0
-, const int j0
-, const int i1
-, const int j1
+, Q3        p0
+, bool      p0_isVisible
+, Q         p0_distance2oscillator
+, GPoint    s0
+, Q3        p1
+, bool      p1_isVisible
+, Q         p1_distance2oscillator
+, GPoint    s1
 )
 {
-  bool p0_isVisible = grid_mark_isVisible[i0][j0] ;
-  bool p1_isVisible = grid_mark_isVisible[i1][j1] ;
 
   if (!p0_isVisible && !p1_isVisible)    //  None of the points is visible ?
     return ;
 
-  int iColor, jColor ;
-
-  GPoint s0, s1 ;
+  Q      zColor, distColor ;
   
   if (p0_isVisible && p1_isVisible)      //  Both points visible ?
   {
-    s0 = grid_mark_screenCoord[i0][j0] ;
-    s1 = grid_mark_screenCoord[i1][j1] ;
-    iColor = i0  ; jColor = j0 ;
+    zColor    = (p0.z                   + p1.z                  ) >> 1 ;   //  Average world Z.
+    distColor = (p0_distance2oscillator + p1_distance2oscillator) >> 1 ;   //  Average distance 2 oscillator.
   }
   else                                   //  Only one of the points is visible.
   {
     Q3  visible, invisible ;
-
+    Q   visible_distance2oscillator ;
+    
     if (p0_isVisible)
     {
-      iColor = i0 ;
-      jColor = j0 ;
-      s0 = grid_mark_screenCoord[i0][j0] ;
-      Q3_assign( &visible  , &grid_mark_worldCoord[i0][j0] ) ;
-      Q3_assign( &invisible, &grid_mark_worldCoord[i1][j1] ) ;
+      visible   = p0 ;  visible_distance2oscillator = p0_distance2oscillator ;
+      invisible = p1 ;
     }
     else
     {
-      iColor = i1 ;
-      jColor = j1 ;
-      s0 = grid_mark_screenCoord[i1][j1] ;
-      Q3_assign( &visible  , &grid_mark_worldCoord[i1][j1] ) ;
-      Q3_assign( &invisible, &grid_mark_worldCoord[i0][j0] ) ;
+      s0 = s1 ;
+      visible   = p1 ;  visible_distance2oscillator = p1_distance2oscillator ;
+      invisible = p0 ;
     }
 
     for (int i = 0  ;  i < TERMINATOR_MAX_ITERATIONS  ;  ++i)    // TODO: replace with a while with screen point distance exit heuristic.
     {
       Q3  half ;
+      Q   half_distance2Oscillator ;
 
-      half.x = (visible.x + invisible.x) >> 1 ;
-      half.y = (visible.y + invisible.y) >> 1 ;
-      half.z = world_function( half.x, half.y ) ;
+      half.x                   = (visible.x + invisible.x) >> 1 ;
+      half.y                   = (visible.y + invisible.y) >> 1 ;
+      half_distance2Oscillator = distance2oscillator( half.x, half.y ) ;
+      half.z                   = f_distance( half_distance2Oscillator ) ;
   
       if (world_pointIsVisible( &half, &s_cam.viewPoint ))
-        Q3_assign( &visible  , &half ) ;
+      {
+        visible = half ;  visible_distance2oscillator = half_distance2Oscillator ;
+      }
       else
-        Q3_assign( &invisible, &half ) ;
+        invisible = half ;
     }
   
-    // Calculate camera film plane 2D coordinates of 3D world points.
-    Q2 vCamera ;
-    CamQ3_view( &vCamera, &s_cam, &visible ) ;
-
-    // Convert camera coordinates to screen/device coordinates.
-    Q x = Q_mul( cameraCoord2screenCoord_k, vCamera.x )  +  cameraCoord2screenCoord_bX ;
-    Q y = Q_mul( cameraCoord2screenCoord_k, vCamera.y )  +  cameraCoord2screenCoord_bY ;
-    s1.x = Q_to_int(x) ;
-    s1.y = Q_to_int(y) ;
+    worldCoord2ScreenCoord( &s1, &visible ) ;
+    zColor    = (p0.z                   + visible.z                  ) >> 1 ;   //  Average world Z.
+    distColor = (p0_distance2oscillator + visible_distance2oscillator) >> 1 ;   //  Average distance 2 oscillator.
   }
 
 #ifdef PBL_COLOR
-  set_stroke_color( gCtx, iColor, jColor ) ;
+  set_stroke_color( gCtx, zColor, distColor ) ;
+
   graphics_draw_line( gCtx, s0, s1 ) ;
 #else
-  Draw2D_line_pattern( gCtx, s0.x, s0.y, s1.x, s1.y, get_stroke_ink( iColor, jColor ) ) ;
+  Draw2D_line_pattern( gCtx
+                     , s0.x, s0.y
+                     , s1.x, s1.y
+                     , get_stroke_ink( zColor, distColor )
+                     ) ;
 #endif
 }
 
 
 void
-function_draw_xLINES
+grid_xBiSegment_drawLines
 ( GContext *gCtx )
 {
   // x parallel lines.
   for (int j = 0  ;  j < GRID_LINES  ;  ++j)
-    for (int i = 1  ;  i < GRID_LINES  ;  ++i)
-      function_draw_lineSegment( gCtx, i, j, i-1, j ) ;
+    for (int i = 0  ;  i < GRID_LINES-1 ;  ++i)
+    {
+      function_draw_lineSegment( gCtx
+                               , grid_xBiSegment_center_worldCoord[i][j]
+                               , grid_xBiSegment_center_isVisible[i][j]
+                               , grid_xBiSegment_center_distance2oscillator[i][j]
+                               , grid_xBiSegment_center_screenCoord[i][j]
+                               , grid_mark_worldCoord[i][j]
+                               , grid_mark_isVisible[i][j]
+                               , grid_mark_distance2oscillator[i][j]
+                               , grid_mark_screenCoord[i][j]
+                               ) ;
+
+      int i1 = i + 1 ;
+
+      function_draw_lineSegment( gCtx
+                               , grid_xBiSegment_center_worldCoord[i][j]
+                               , grid_xBiSegment_center_isVisible[i][j]
+                               , grid_xBiSegment_center_distance2oscillator[i][j]
+                               , grid_xBiSegment_center_screenCoord[i][j]
+                               , grid_mark_worldCoord[i1][j]
+                               , grid_mark_isVisible[i1][j]
+                               , grid_mark_distance2oscillator[i1][j]
+                               , grid_mark_screenCoord[i1][j]
+                               ) ;
+    }
 }
 
 
 void
-function_draw_yLINES
+grid_yBiSegment_drawLines
 ( GContext *gCtx )
 {
   // y parallel lines.
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
-    for (int j = 1  ;  j < GRID_LINES  ;  ++j)
-      function_draw_lineSegment( gCtx, i, j, i, j-1 ) ;
+    for (int j = 0  ;  j < GRID_LINES-1  ;  ++j)
+    {
+      function_draw_lineSegment( gCtx
+                               , grid_yBiSegment_center_worldCoord[i][j]
+                               , grid_yBiSegment_center_isVisible[i][j]
+                               , grid_yBiSegment_center_distance2oscillator[i][j]
+                               , grid_yBiSegment_center_screenCoord[i][j]
+                               , grid_mark_worldCoord[i][j]
+                               , grid_mark_isVisible[i][j]
+                               , grid_mark_distance2oscillator[i][j]
+                               , grid_mark_screenCoord[i][j]
+                               ) ;
+
+      int j1 = j + 1 ;
+
+      function_draw_lineSegment( gCtx
+                               , grid_yBiSegment_center_worldCoord[i][j]
+                               , grid_yBiSegment_center_isVisible[i][j]
+                               , grid_yBiSegment_center_distance2oscillator[i][j]
+                               , grid_yBiSegment_center_screenCoord[i][j]
+                               , grid_mark_worldCoord[i][j1]
+                               , grid_mark_isVisible[i][j1]
+                               , grid_mark_distance2oscillator[i][j1]
+                               , grid_mark_screenCoord[i][j1]
+                               ) ;
+    }
+}
+
+
+void
+grid_mark_screenCoord_update
+( )
+{
+  for (int i = 0  ;  i < GRID_LINES  ;  ++i)
+    for (int j = 0  ;  j < GRID_LINES  ;  ++j)
+      worldCoord2ScreenCoord( &grid_mark_screenCoord[i][j], &grid_mark_worldCoord[i][j] ) ;
+}
+
+
+void
+grid_xBiSegment_center_screenCoord_update
+( )
+{
+  for (int j = 0  ;  j < GRID_LINES  ;  j++)
+    for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
+      worldCoord2ScreenCoord( &grid_xBiSegment_center_screenCoord[i][j], &grid_xBiSegment_center_worldCoord[i][j] ) ;
+}
+
+
+void
+grid_yBiSegment_center_screenCoord_update
+( )
+{
+  for (int i = 0  ;  i < GRID_LINES  ;  i++)
+    for (int j = 0  ;  j < GRID_LINES-1  ;  j++)
+      worldCoord2ScreenCoord( &grid_yBiSegment_center_screenCoord[i][j], &grid_yBiSegment_center_worldCoord[i][j] ) ;
+}
+
+
+void
+grid_screenCoord_update
+( )
+{
+  grid_mark_screenCoord_update( ) ;
+  grid_xBiSegment_center_screenCoord_update( ) ;
+  grid_yBiSegment_center_screenCoord_update( ) ;
 }
 
 
@@ -1013,33 +1358,22 @@ world_draw
   graphics_context_set_stroke_color( gCtx, s_stroke_color ) ;
 #endif
 
-  // Calculate screen points.
-  for (int i = 0  ;  i < GRID_LINES  ;  ++i)
-    for (int j = 0  ;  j < GRID_LINES  ;  ++j)
-    {
-      // Calculate camera film plane 2D coordinates of 3D world points.
-      Q2 vCamera ;
-      CamQ3_view( &vCamera, &s_cam, &grid_mark_worldCoord[i][j] ) ;
-  
-      // Convert camera coordinates to screen/device coordinates.
-      Q x = Q_mul( cameraCoord2screenCoord_k, vCamera.x )  +  cameraCoord2screenCoord_bX ;
-      Q y = Q_mul( cameraCoord2screenCoord_k, vCamera.y )  +  cameraCoord2screenCoord_bY ;
-      grid_mark_screenCoord[i][j].x = Q_to_int(x) ;
-      grid_mark_screenCoord[i][j].y = Q_to_int(y) ;
-    }
+  grid_screenCoord_update( ) ;
 
   // Draw the calculated screen points.
   switch (s_plotterMode)
   {
     case PLOTTER_MODE_DOTS:
-      function_draw_DOTS( gCtx ) ;
+      grid_screenCoord_drawPixel( gCtx ) ;
+    break ;
+
+    case PLOTTER_MODE_LINES:
+      grid_xBiSegment_drawLines( gCtx ) ;
     break ;
 
     case PLOTTER_MODE_GRID:
-      function_draw_yLINES( gCtx ) ;
-
-    case PLOTTER_MODE_LINES:
-      function_draw_xLINES( gCtx ) ;
+      grid_xBiSegment_drawLines( gCtx ) ;
+      grid_yBiSegment_drawLines( gCtx ) ;
     break ;
 
     default:
