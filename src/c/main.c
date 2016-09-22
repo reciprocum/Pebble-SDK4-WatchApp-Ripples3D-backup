@@ -58,21 +58,19 @@ world_boxing( Q3 p )
 #define Z_SHIFT      9
 #define DIST_SHIFT   4
 
-static int16_t    grid_major_x         [GRID_LINES] ;                   // sQ3.12  Coords [-7.999,+7.999]
-static int16_t    grid_major_y         [GRID_LINES] ;                   // sQ3.12  Coords [-7.999,+7.999]
-static int8_t     grid_major_z         [GRID_LINES][GRID_LINES] ;       // sQ0.7   f(x,y) [-0.99, +0.99]
-static uint16_t   grid_major_dist2osc  [GRID_LINES][GRID_LINES] ;       // uQ4.12  Need integer part up to 11.3137 because of max diagonal distance for bouncing oscillator.
+static int16_t    grid_major_x         [GRID_LINES] ;                   // S3.12  Coords [-7.999,+7.999]
+static int16_t    grid_major_y         [GRID_LINES] ;                   // S3.12  Coords [-7.999,+7.999]
+static int8_t     grid_major_z         [GRID_LINES][GRID_LINES] ;       // S0.7   f(x,y) [-0.99, +0.99]
+static uint16_t   grid_major_dist2osc  [GRID_LINES][GRID_LINES] ;       // U4.12  Need integer part up to 11.3137 because of max diagonal distance for bouncing oscillator.
 static Visibility grid_major_visibility[GRID_LINES][GRID_LINES] ;
 static GPoint     grid_major_screen    [GRID_LINES][GRID_LINES] ;
 
-static int16_t    grid_minor_x         [GRID_LINES-1] ;                 // sQ3.12  Coords [-7.999,+7.999]
-static int16_t    grid_minor_y         [GRID_LINES-1] ;                 // sQ3.12  Coords [-7.999,+7.999]
-static int8_t     grid_minor_z         [GRID_LINES-1][GRID_LINES-1] ;   // sQ0.7   f(x,y) [-0.99, +0.99]
-static uint16_t   grid_minor_dist2osc  [GRID_LINES-1][GRID_LINES-1] ;   // uQ4.12  Need integer part up to sqrt(2) * GRID_SCALE because of max diagonal distance for bouncing oscillator.
+static int16_t    grid_minor_x         [GRID_LINES-1] ;                 // S3.12  Coords [-7.999,+7.999]
+static int16_t    grid_minor_y         [GRID_LINES-1] ;                 // S3.12  Coords [-7.999,+7.999]
+static int8_t     grid_minor_z         [GRID_LINES-1][GRID_LINES-1] ;   // S0.7   f(x,y) [-0.99, +0.99]
+static uint16_t   grid_minor_dist2osc  [GRID_LINES-1][GRID_LINES-1] ;   // U4.12  Need integer part up to sqrt(2) * GRID_SCALE because of max diagonal distance for bouncing oscillator.
 static Visibility grid_minor_visibility[GRID_LINES-1][GRID_LINES-1] ;
 static GPoint     grid_minor_screen    [GRID_LINES-1][GRID_LINES-1] ;
-
-static Q        dy2[GRID_LINES] ;   // Auxiliary array.
 
 static int32_t oscillator_anglePhase ;
 static Q2      oscillator_position ;
@@ -674,12 +672,13 @@ function_isVisible_fromPoint
 
 /***  ---------------  oscillator---------  ***/
 
+static Q        dy2[GRID_LINES] ;   // Auxiliary array.
+
+
 void
 grid_major_dist2osc_update
 ( )
 {
-  Q maxDist = Q_0 ;
-
   for (int j = 0  ;  j < GRID_LINES  ;  j++)
   {
     const Q dy = oscillator_position.y - (grid_major_y[j] << COORD_SHIFT) ;
@@ -692,14 +691,7 @@ grid_major_dist2osc_update
     const Q dx2_i = Q_mul( dx, dx ) ;
 
     for (int j = 0  ;  j < GRID_LINES  ;  j++)
-    {
-      const Q dist =  Q_sqrt( dx2_i + dy2[j] ) ;
-      
-      if (dist > maxDist)
-        maxDist = dist ;
-
-      grid_major_dist2osc[i][j] = dist >> DIST_SHIFT ;
-    }
+      grid_major_dist2osc[i][j] = Q_sqrt( dx2_i + dy2[j] ) >> DIST_SHIFT ;
   }
 }
 
@@ -805,26 +797,22 @@ static bool       s_color_isInverted ;
 
   void
   set_stroke_color
-  ( GContext         *gCtx
-  , const Q           z
-  , const Q           distance
-  , const Visibility  visibility
+  ( GContext    *gCtx
+  , const Fuxel  f
   )
   {
     switch (s_colorization)
     {
       case COLORIZATION_SIGNAL:
-        graphics_context_set_stroke_color( gCtx, z > Q_0  ?  GColorMelon  :  GColorVividCerulean ) ;
+        graphics_context_set_stroke_color( gCtx, f.world.z > Q_0  ?  GColorMelon  :  GColorVividCerulean ) ;
       break ;
 
       case COLORIZATION_DIST:
-        graphics_context_set_stroke_color( gCtx, s_colorMap[(distance >> 15) & 0b111] ) ;      //  (2 * distance) % 8
+        graphics_context_set_stroke_color( gCtx, s_colorMap[(f.dist2osc >> 15) & 0b111] ) ;      //  (2 * distance) % 8
       break ;
 
       case COLORIZATION_LIGHT:
-        graphics_context_set_stroke_color( gCtx
-                                         , visibility.fromLight1 ? s_colorMap[(distance >> 15) & 0b111]  :  GColorDarkGray
-                                         ) ;
+        graphics_context_set_stroke_color( gCtx, f.visibility.fromLight1 ? s_color_stroke : GColorDarkGray ) ;
       break ;
 
       case COLORIZATION_MONO:
@@ -856,10 +844,7 @@ static bool       s_color_isInverted ;
 
   ink_t
   get_stroke_ink
-  ( const Q           z
-  , const Q           distance
-  , const Visibility  visibility
-  )
+  ( const Fuxel  f )
   {
     switch (s_colorization)
     {
@@ -867,10 +852,10 @@ static bool       s_color_isInverted ;
         return INK100 ;
 
       case COLORIZATION_SIGNAL:
-        return z > Q_0  ?  INK100  :  INK33 ;
+        return  f.world.z > Q_0  ?  INK100  :  INK33 ;
 
       case COLORIZATION_DIST:
-        switch ((distance >> 15) & 0b1 )   //  (2 * distance) % 2
+        switch ((f.dist2osc >> 15) & 0b1 )   //  (2 * distance) % 2
         {
           case 1:
             return INK33 ;
@@ -882,7 +867,7 @@ static bool       s_color_isInverted ;
       break ;
 
       case COLORIZATION_LIGHT:
-        return visibility.fromLight1 ? INK100 : INK33 ;
+        return f.visibility.fromLight1 ? INK100 : INK33 ;
       break ;
 
       case COLORIZATION_UNDEFINED:
@@ -1283,22 +1268,38 @@ world_update
 
 
 void
+function_draw_pixel
+( GContext    *gCtx
+, const Fuxel  f
+)
+{
+#ifdef PBL_COLOR
+  set_stroke_color( gCtx, f ) ;
+#endif
+
+  graphics_draw_pixel( gCtx, f.screen ) ;
+}
+
+
+void
 grid_major_drawPixel
 ( GContext *gCtx )
 {
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
     for (int j = 0  ;  j < GRID_LINES  ;  ++j)
     {
-      Visibility visibility = grid_major_visibility[i][j] ;
-    
-      if (visibility.fromCam)
-      {
-        #ifdef PBL_COLOR
-          set_stroke_color( gCtx, grid_major_z[i][j] << Z_SHIFT, grid_major_dist2osc[i][j] << DIST_SHIFT, visibility ) ;
-        #endif
+      Fuxel f = (Fuxel){ .world      = (Q3){ .x = grid_major_x[i] << COORD_SHIFT
+                                           , .y = grid_major_y[j] << COORD_SHIFT
+                                           , .z = grid_major_z[i][j] << Z_SHIFT
+                                           }
+                       , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
+                       , .visibility = grid_major_visibility[i][j]
+                       , .screen     = grid_major_screen[i][j]
+                       }
+      ;
 
-        graphics_draw_pixel( gCtx, grid_major_screen[i][j] ) ;
-      }
+      if (f.visibility.fromCam)
+        function_draw_pixel( gCtx, f ) ;
     }
 }
 
@@ -1310,16 +1311,18 @@ grid_minor_drawPixel
   for (int i = 0  ;  i < GRID_LINES-1  ;  i++)
     for (int j = 0  ;  j < GRID_LINES-1 ;  j++)
     {
-      Visibility visibility = grid_minor_visibility[i][j] ;
-    
-      if (visibility.fromCam)
-      {
-        #ifdef PBL_COLOR
-          set_stroke_color( gCtx, grid_minor_z[i][j] << Z_SHIFT, grid_minor_dist2osc[i][j] << DIST_SHIFT, visibility ) ;
-        #endif
+      Fuxel f = (Fuxel){ .world      = (Q3){ .x = grid_minor_x[i] << COORD_SHIFT
+                                           , .y = grid_minor_y[j] << COORD_SHIFT
+                                           , .z = grid_minor_z[i][j] << Z_SHIFT
+                                           }
+                       , .dist2osc   = grid_minor_dist2osc[i][j] << DIST_SHIFT
+                       , .visibility = grid_minor_visibility[i][j]
+                       , .screen     = grid_minor_screen[i][j]
+                       }
+      ;
 
-        graphics_draw_pixel( gCtx, grid_minor_screen[i][j] ) ;
-      }
+      if (f.visibility.fromCam)
+        function_draw_pixel( gCtx, f ) ;
     }
 }
 
@@ -1331,16 +1334,18 @@ grid_major_drawPixel_XRAY
   for (int i = 0  ;  i < GRID_LINES  ;  ++i)
     for (int j = 0  ;  j < GRID_LINES  ;  ++j)
     {
-      Visibility visibility = grid_major_visibility[i][j] ;
-    
-      if (!visibility.fromCam)
-      {
-        #ifdef PBL_COLOR
-          set_stroke_color( gCtx, grid_major_z[i][j] << Z_SHIFT, grid_major_dist2osc[i][j] << DIST_SHIFT, visibility ) ;
-        #endif
+      Fuxel f = (Fuxel){ .world      = (Q3){ .x = grid_major_x[i] << COORD_SHIFT
+                                           , .y = grid_major_y[j] << COORD_SHIFT
+                                           , .z = grid_major_z[i][j] << Z_SHIFT
+                                           }
+                       , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
+                       , .visibility = grid_major_visibility[i][j]
+                       , .screen     = grid_major_screen[i][j]
+                       }
+      ;
 
-        graphics_draw_pixel( gCtx, grid_major_screen[i][j] ) ;
-      }
+      if (!f.visibility.fromCam)
+        function_draw_pixel( gCtx, f ) ;
     }
 }
 
@@ -1352,27 +1357,27 @@ grid_minor_drawPixel_XRAY
   for (int i = 0  ;  i < GRID_LINES-1  ;  ++i)
     for (int j = 0  ;  j < GRID_LINES-1  ;  ++j)
     {
-      Visibility visibility = grid_minor_visibility[i][j] ;
-    
-      if (!visibility.fromCam)
-      {
-        #ifdef PBL_COLOR
-          set_stroke_color( gCtx, grid_minor_z[i][j] << Z_SHIFT, grid_minor_dist2osc[i][j] << DIST_SHIFT, visibility ) ;
-        #endif
+      Fuxel f = (Fuxel){ .world      = (Q3){ .x = grid_minor_x[i] << COORD_SHIFT
+                                           , .y = grid_minor_y[j] << COORD_SHIFT
+                                           , .z = grid_minor_z[i][j] << Z_SHIFT
+                                           }
+                       , .dist2osc   = grid_minor_dist2osc[i][j] << DIST_SHIFT
+                       , .visibility = grid_minor_visibility[i][j]
+                       , .screen     = grid_minor_screen[i][j]
+                       }
+      ;
 
-        graphics_draw_pixel( gCtx, grid_minor_screen[i][j] ) ;
-      }
+      if (!f.visibility.fromCam)
+        function_draw_pixel( gCtx, f ) ;
     }
 }
 
 
 void
-function_draw_lineSegment
+function_draw_line
 ( GContext    *gCtx
 , const Fuxel  f0
 , const Fuxel  f1
-, Q3           viewPoint
-, Boxing       viewPointBoxing
 )
 {
   if (!f0.visibility.fromCam && !f1.visibility.fromCam)    //  None of the points is visible ?
@@ -1408,7 +1413,7 @@ function_draw_lineSegment
       half.world.y            = (terminator.world.y + invisible.world.y) >> 1 ;
       half.dist2osc           = oscillator_distance( half.world.x, half.world.y ) ;
       half.world.z            = f_distance( half.dist2osc ) ;
-      half.visibility.fromCam = function_isVisible_fromPoint( half.world, viewPoint, viewPointBoxing ) ;
+      half.visibility.fromCam = function_isVisible_fromPoint( half.world, s_cam.viewPoint, s_cam_viewPoint_boxing ) ;
 
       if (half.visibility.fromCam)
         terminator = half ;
@@ -1420,18 +1425,15 @@ function_draw_lineSegment
     draw1 = terminator ;
   }
 
-  const Q zColor    = (draw0.world.z  + draw1.world.z ) >> 1 ;   //  Average world Z.
-  const Q distColor = (draw0.dist2osc + draw1.dist2osc) >> 1 ;   //  Average distance 2 oscillator.
-
 #ifdef PBL_COLOR
-  set_stroke_color( gCtx, zColor, distColor, draw0.visibility ) ;
+  set_stroke_color( gCtx, draw0 ) ;
 
   graphics_draw_line( gCtx, draw0.screen, draw1.screen ) ;
 #else
   Draw2D_line_pattern( gCtx
                      , draw0.screen.x, draw0.screen.y
                      , draw1.screen.x, draw1.screen.y
-                     , get_stroke_ink( zColor, distColor, draw0.visibility )
+                     , get_stroke_ink( draw0 )
                      ) ;
 #endif
 }
@@ -1444,32 +1446,34 @@ grid_major_drawLineX
 , int       j
 )
 {
-  const Q grid_major_yj = grid_major_y[j] << COORD_SHIFT ;
+  Fuxel f0, f1 ;
+  const Q grid_major_y_j = grid_major_y[j] << COORD_SHIFT ;
 
-  for (int i = 0  ;  i < GRID_LINES-1 ;  ++i)
+  f1 = (Fuxel){ .world      = (Q3){ .x = grid_major_x[0] << COORD_SHIFT
+                                  , .y = grid_major_y_j
+                                  , .z = grid_major_z[0][j] << Z_SHIFT
+                                  }
+              , .dist2osc   = grid_major_dist2osc[0][j] << DIST_SHIFT
+              , .visibility = grid_major_visibility[0][j]
+              , .screen     = grid_major_screen[0][j]
+              }
+  ;
+
+  for (int i = 1  ;  i < GRID_LINES-1 ;  ++i)
   {
-    const int i1 = i + 1 ;
+    f0 = f1 ;
 
-    function_draw_lineSegment( gCtx
-                             , (Fuxel){ .world      = (Q3){ .x = grid_major_x[i] << COORD_SHIFT          // f0
-                                                          , .y = grid_major_yj
-                                                          , .z = grid_major_z[i][j] << Z_SHIFT
-                                                          }
-                                      , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
-                                      , .visibility = grid_major_visibility[i][j]
-                                      , .screen     = grid_major_screen[i][j]
-                                      }
-                             , (Fuxel){ .world      =  (Q3){ .x = grid_major_x[i1] << COORD_SHIFT        // f1
-                                                           , .y = grid_major_yj
-                                                           , .z = grid_major_z[i1][j] << Z_SHIFT
-                                                           }
-                                      , .dist2osc   = grid_major_dist2osc[i1][j] << DIST_SHIFT
-                                      , .visibility = grid_major_visibility[i1][j]
-                                      , .screen     = grid_major_screen[i1][j]
-                                      }
-                             , s_cam.viewPoint
-                             , s_cam_viewPoint_boxing
-                             ) ;
+    f1 = (Fuxel){ .world      =  (Q3){ .x = grid_major_x[i] << COORD_SHIFT
+                                     , .y = grid_major_y_j
+                                     , .z = grid_major_z[i][j] << Z_SHIFT
+                                     }
+                , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
+                , .visibility = grid_major_visibility[i][j]
+                , .screen     = grid_major_screen[i][j]
+                }
+    ;
+
+    function_draw_line( gCtx, f0, f1 ) ;
   }
 }
 
@@ -1481,32 +1485,34 @@ grid_major_drawLineY
 , int       i
 )
 {
-  const Q grid_major_xi = grid_major_x[i] << COORD_SHIFT ;
+  Fuxel f0, f1 ;
+  const Q grid_major_x_i = grid_major_x[i] << COORD_SHIFT ;
 
-  for (int j = 0  ;  j < GRID_LINES-1 ;  ++j)
+  f1 = (Fuxel){ .world      = (Q3){ .x = grid_major_x_i
+                                  , .y = grid_major_y[0] << COORD_SHIFT
+                                  , .z = grid_major_z[i][0] << Z_SHIFT
+                                  }
+              , .visibility = grid_major_visibility[i][0]
+              , .dist2osc   = grid_major_dist2osc[i][0] << DIST_SHIFT
+              , .screen     = grid_major_screen[i][0]
+              }
+  ;
+
+  for (int j = 1  ;  j < GRID_LINES-1 ;  ++j)
   {
-    const int j1 = j + 1 ;
+    f0 = f1 ;
 
-    function_draw_lineSegment( gCtx
-                             , (Fuxel){ .world      = (Q3){ .x = grid_major_xi                        // f0
-                                                          , .y = grid_major_y[j] << COORD_SHIFT
-                                                          , .z = grid_major_z[i][j] << Z_SHIFT
-                                                          }
-                                      , .visibility = grid_major_visibility[i][j]
-                                      , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
-                                      , .screen     = grid_major_screen[i][j]
-                                      }
-                             , (Fuxel){ .world      = (Q3){ .x = grid_major_xi                        // f1
-                                                          , .y = grid_major_y[j1] << COORD_SHIFT
-                                                          , .z = grid_major_z[i][j1] << Z_SHIFT
-                                                          }
-                                      , .visibility = grid_major_visibility[i][j1]
-                                      , .dist2osc   = grid_major_dist2osc[i][j1] << DIST_SHIFT
-                                      , .screen     = grid_major_screen[i][j1]
-                                      }
-                             , s_cam.viewPoint
-                             , s_cam_viewPoint_boxing
-                             ) ;
+    f1 = (Fuxel){ .world      = (Q3){ .x = grid_major_x_i
+                                    , .y = grid_major_y[j] << COORD_SHIFT
+                                    , .z = grid_major_z[i][j] << Z_SHIFT
+                                    }
+                , .visibility = grid_major_visibility[i][j]
+                , .dist2osc   = grid_major_dist2osc[i][j] << DIST_SHIFT
+                , .screen     = grid_major_screen[i][j]
+                }
+    ;
+
+    function_draw_line( gCtx, f0, f1 ) ;
   }
 }
 
@@ -1554,32 +1560,34 @@ grid_minor_drawLineX
 , int       j
 )
 {
-  const Q grid_minor_yj = grid_minor_y[j] << COORD_SHIFT ;
+  Fuxel f0, f1 ;
+  const Q grid_minor_y_j = grid_minor_y[j] << COORD_SHIFT ;
 
-  for (int i = 0  ;  i < GRID_LINES-2 ;  ++i)
+  f1 = (Fuxel){ .world      = (Q3){ .x = grid_minor_x[0] << COORD_SHIFT
+                                  , .y = grid_minor_y_j
+                                  , .z = grid_minor_z[0][j] << Z_SHIFT
+                                  }
+              , .dist2osc   = grid_minor_dist2osc[0][j] << DIST_SHIFT
+              , .visibility = grid_minor_visibility[0][j]
+              , .screen     = grid_minor_screen[0][j]
+              }
+  ;
+
+  for (int i = 1  ;  i < GRID_LINES-2 ;  ++i)
   {
-    const int i1 = i + 1 ;
+    f0 = f1 ;
+    
+    f1 = (Fuxel){ .world      = (Q3){ .x = grid_minor_x[i] << COORD_SHIFT
+                                    , .y = grid_minor_y_j
+                                    , .z = grid_minor_z[i][j] << Z_SHIFT
+                                    }
+                , .dist2osc   = grid_minor_dist2osc[i][j] << DIST_SHIFT
+                , .visibility = grid_minor_visibility[i][j]
+                , .screen     = grid_minor_screen[i][j]
+                }
+    ;
 
-    function_draw_lineSegment( gCtx
-                             , (Fuxel){ .world      = (Q3){ .x = grid_minor_x[i] << COORD_SHIFT          // f0
-                                                          , .y = grid_minor_yj
-                                                          , .z = grid_minor_z[i][j] << Z_SHIFT
-                                                          }
-                                      , .dist2osc   = grid_minor_dist2osc[i][j] << DIST_SHIFT
-                                      , .visibility = grid_minor_visibility[i][j]
-                                      , .screen     = grid_minor_screen[i][j]
-                                      }
-                             , (Fuxel){ .world      = (Q3){ .x = grid_minor_x[i1] << COORD_SHIFT         // f1
-                                                          , .y = grid_minor_yj
-                                                          , .z = grid_minor_z[i1][j] << Z_SHIFT
-                                                          }
-                                      , .dist2osc   = grid_minor_dist2osc[i1][j] << DIST_SHIFT
-                                      , .visibility = grid_minor_visibility[i1][j]
-                                      , .screen     = grid_minor_screen[i1][j]
-                                      }
-                             , s_cam.viewPoint
-                             , s_cam_viewPoint_boxing
-                             ) ;
+    function_draw_line( gCtx, f0, f1 ) ;
   }
 }
 
