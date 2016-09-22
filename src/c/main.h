@@ -5,17 +5,63 @@
    Notes   : Dedicated to all the @PebbleDev team and to @KatharineBerry in particular
            : ... for her CloudPebble online dev environment that made this possible.
 
-   Last revision: 13h15 September 14 2016  GMT
+   Last revision: 09h15 September 21 2016  GMT
 */
 
 #include "Config.h"
 
 
-// World related
+/* -----------   Default modes   ----------- */
 
-#define  GRID_LINES                 29
-#define  GRID_SCALE                 6.283185f
-#define  CAM3D_DISTANCEFROMORIGIN   8.75f
+#ifdef GIF
+  #define  ANTIALIASING_DEFAULT    true
+  #define  OSCILLATOR_DEFAULT      OSCILLATOR_BOUNCING
+  #define  PATTERN_DEFAULT         PATTERN_STRIPES
+  #define  TRANSPARENCY_DEFAULT    TRANSPARENCY_OPAQUE
+  #define  COLORIZATION_DEFAULT    COLORIZATION_LIGHT
+  #define  ANIMATION_INTERVAL_MS   200
+#else
+  #define  ANTIALIASING_DEFAULT    false
+  #define  OSCILLATOR_DEFAULT      OSCILLATOR_ANCHORED
+  #define  PATTERN_DEFAULT         PATTERN_LINES
+  #define  TRANSPARENCY_DEFAULT    TRANSPARENCY_TRANSLUCENT
+
+  #ifdef EMU
+    #define  ANIMATION_INTERVAL_MS    80
+  #else
+    #define  ANIMATION_INTERVAL_MS    50
+  #endif
+
+  #ifdef PBL_COLOR
+    #define  COLORIZATION_DEFAULT     COLORIZATION_DIST
+  #else
+    #define  COLORIZATION_DEFAULT     COLORIZATION_MONO
+  #endif
+#endif
+
+
+// Animation related: adds wrist movement reaction inertia to dampen accelerometer jerkiness.
+#define ACCEL_SAMPLER_CAPACITY    8
+
+#define VISIBILITY_MAX_ITERATIONS   4
+#define TERMINATOR_MAX_ITERATIONS   3
+
+
+/* -----------   GRID/CAMERA PARAMETERS   ----------- */
+
+#ifdef PBL_COLOR
+  #define  GRID_LINES     27
+#else
+  // Any more lines and APLITE will crash.
+  #define  GRID_LINES     25
+#endif
+
+// The GRID_SCALE value bellow has been precison engineered as to saturate x,y grid coord tables in signed Q3.12 format (int16_t),
+// make 100% SURE you do the proper (required) adjustments if you ever change this value.
+#define  GRID_SCALE                 7.9999f
+
+#define  CAM3D_DISTANCEFROMORIGIN   9.75f
+#define  LIGHT_DISTANCEFROMORIGIN   9.75f
 
 
 /* -----------   PHYSICS PARAMETERS   ----------- */
@@ -29,39 +75,3 @@
 //  Increase this value for a "heavier" feeling
 //  Decrease this value for a "lighter" feeling
 #define OSCILLATOR_INERTIA_LEVEL        2
-
-
-/* -----------   Default modes   ----------- */
-
-//#define  OSCILLATOR_MODE_DEFAULT     OSCILLATOR_MODE_FLOATING
-//#define  OSCILLATOR_MODE_DEFAULT     OSCILLATOR_MODE_BOUNCING
-
-#define  ANTIALIASING_DEFAULT       false
-
-#ifdef GIF
-  #define  OSCILLATOR_MODE_DEFAULT    OSCILLATOR_MODE_ANCHORED
-  #define  PLOTTER_MODE_DEFAULT       PLOTTER_MODE_LINES
-  #define  ANIMATION_INTERVAL_MS      150
-#else
-  #define  OSCILLATOR_MODE_DEFAULT    OSCILLATOR_MODE_ANCHORED
-  #define  PLOTTER_MODE_DEFAULT       PLOTTER_MODE_LINES
-
-  #ifdef EMU
-    #define  ANIMATION_INTERVAL_MS    120
-  #else
-    #define  ANIMATION_INTERVAL_MS    40
-  #endif
-#endif
-
-// Animation related: adds wrist movement reaction inertia to dampen accelerometer jerkiness.
-#define ACCEL_SAMPLER_CAPACITY    8
-
-
-#ifdef PBL_COLOR
-  #define  COLOR_MODE_DEFAULT       COLOR_MODE_DIST
-#else
-  #define  COLOR_MODE_DEFAULT       COLOR_MODE_MONO
-#endif
-
-#define VISIBILITY_MAX_ITERATIONS   4
-#define TERMINATOR_MAX_ITERATIONS   2
